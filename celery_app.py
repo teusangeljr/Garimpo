@@ -2,7 +2,16 @@ from celery import Celery
 import os
 
 def make_celery(app_name=__name__):
-    redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    # Procura pela URL do Redis em variáveis comuns (Render, Heroku, etc)
+    redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_TLS_URL')
+    
+    if not redis_url:
+        print("⚠️ AVISO: REDIS_URL não encontrada. Usando localhost (Modo Desenvolvimento).")
+        redis_url = 'redis://localhost:6379/0'
+    else:
+        # Garante que a URL não termine com espaços ou caracteres invisíveis
+        redis_url = redis_url.strip()
+        print(f"✅ Conectando ao Redis: {redis_url[:15]}...") # Log parcial por segurança
     
     celery = Celery(
         app_name,

@@ -3,7 +3,6 @@
 set -o errexit
 
 # Install dependencies
-cd backend
 pip install -r requirements.txt
 
 # Download and extract Chrome

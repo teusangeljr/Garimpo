@@ -9,8 +9,8 @@ services:
   - type: web
     name: garimpo-api
     env: python
-    buildCommand: "./backend/render-build.sh"
-    startCommand: "cd backend && gunicorn app:app --timeout 180"
+    buildCommand: "./render-build.sh"
+    startCommand: "gunicorn app:app --timeout 180"
     envVars:
       - key: REDIS_URL
         fromService:
@@ -26,8 +26,8 @@ services:
   - type: worker
     name: garimpo-worker
     env: python
-    buildCommand: "./backend/render-build.sh"
-    startCommand: "cd backend && celery -A tasks worker --loglevel=info -P solo"
+    buildCommand: "./render-build.sh"
+    startCommand: "celery -A tasks worker --loglevel=info -P solo"
     envVars:
       - key: REDIS_URL
         fromService:
