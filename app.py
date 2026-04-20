@@ -143,6 +143,17 @@ def get_job_status(job_id):
     
     return jsonify(response)
 
+@app.route('/api/job/<job_id>/cancel', methods=['POST'])
+def cancel_job(job_id):
+    """Cancela uma tarefa no Celery"""
+    try:
+        from celery.result import AsyncResult
+        # Revoga a tarefa. terminate=True envia SIGTERM para o processo worker.
+        celery.control.revoke(job_id, terminate=True)
+        return jsonify({'status': 'cancelled', 'job_id': job_id})
+    except Exception as e:
+        return jsonify({'erro': str(e)}), 500
+
 @app.route('/download/<filename>')
 def download(filename):
     """
