@@ -22,6 +22,8 @@ from datetime import datetime, date
 from typing import List, Dict, Optional, Any
 from dateutil.relativedelta import relativedelta
 import sys
+import concurrent.futures
+from script import EmailExtractor
 # ─── Constantes ───────────────────────────────────────────────
 EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
 
@@ -107,7 +109,7 @@ def enriquecer_cnpj(cnpj: str) -> Optional[Dict]:
         if r.status_code == 200:
             return r.json()
         # Fallback: ReceitaWS
-        time.sleep(0.5)
+        time.sleep(0.2)
         r2 = requests.get(
             f"{RECEITAWS_BASE}/{cnpj_clean}",
             headers=HEADERS, timeout=10
@@ -354,7 +356,7 @@ class LeadScraper:
             return None
         try:
             self.driver.get(url)
-            time.sleep(2)
+            time.sleep(0.8)
             html = self.driver.page_source
             soup = BeautifulSoup(html, 'html.parser')
 
@@ -383,7 +385,7 @@ class LeadScraper:
                         continue
                     try:
                         self.driver.get(href)
-                        time.sleep(2)
+                        time.sleep(0.8)
                         html2 = self.driver.page_source
                         soup2 = BeautifulSoup(html2, 'html.parser')
                         for a2 in soup2.find_all('a', href=True):
@@ -417,7 +419,7 @@ class LeadScraper:
             # Redes sociais
             try:
                 self.driver.get(lead['site'])
-                time.sleep(1.5)
+                time.sleep(0.6)
                 redes = detectar_redes_sociais(self.driver.page_source)
                 lead.update(redes)
             except Exception:
@@ -440,7 +442,7 @@ class LeadScraper:
         try:
             url = f"https://www.google.com/maps/search/{urllib.parse.quote(query)}"
             self.driver.get(url)
-            time.sleep(4)
+            time.sleep(1.6)
 
             for _ in range(6):
                 try:
@@ -448,7 +450,7 @@ class LeadScraper:
                     self.driver.execute_script(
                         "arguments[0].scrollTop += 1200;", painel
                     )
-                    time.sleep(1.5)
+                    time.sleep(0.6)
                 except Exception:
                     break
 
@@ -462,7 +464,7 @@ class LeadScraper:
                     lead['nome'] = nome
                     lead['empresa'] = nome
                     card.click()
-                    time.sleep(2)
+                    time.sleep(0.8)
 
                     # Site
                     try:
@@ -491,11 +493,7 @@ class LeadScraper:
                     except Exception:
                         pass
 
-                    # Email do site
-                    if lead['site']:
-                        lead = self._enriquecer_lead_com_site(lead)
-                        self.driver.back()
-                        time.sleep(1)
+                    # Email do site já não é buscado sincronamente aqui
 
                     leads.append(lead)
                     print(f"   ✅ {lead['empresa']} | email: {lead['email'] or '—'}")
@@ -505,7 +503,7 @@ class LeadScraper:
                     try:
                         if 'google.com/maps' not in self.driver.current_url:
                             self.driver.back()
-                            time.sleep(1)
+                            time.sleep(0.4)
                     except Exception:
                         pass
 
@@ -522,7 +520,7 @@ class LeadScraper:
         try:
             query = urllib.parse.quote(f"{nicho} {localizacao}")
             self.driver.get(f"https://cnpj.biz/procura/{query}")
-            time.sleep(3)
+            time.sleep(1.2)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             links = soup.select('a[href*="/cnpj/"]')
@@ -546,7 +544,7 @@ class LeadScraper:
                         lead['cnpj'] = cnpj_match.group(1)
 
                     self.driver.get(emp_url)
-                    time.sleep(2)
+                    time.sleep(0.8)
                     emp_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
                     for a in emp_soup.find_all('a', href=True):
@@ -560,8 +558,7 @@ class LeadScraper:
                     if emails:
                         lead['email'] = emails[0]
 
-                    if not lead['email'] and lead['site']:
-                        lead = self._enriquecer_lead_com_site(lead)
+                    # Email do site será buscado no final em lote
 
                     leads.append(lead)
                     print(f"   ✅ {lead['empresa']} | email: {lead['email'] or '—'}")
@@ -590,7 +587,7 @@ class LeadScraper:
                 + (f"&municipio={urllib.parse.quote(municipio)}" if municipio else '')
             )
             self.driver.get(url)
-            time.sleep(3)
+            time.sleep(1.2)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
@@ -629,7 +626,7 @@ class LeadScraper:
             nicho_s = nicho.lower().replace(' ', '-')
             loc_s   = localizacao.lower().replace(' ', '-')
             self.driver.get(f"https://www.encontrei.com/{nicho_s}/{loc_s}")
-            time.sleep(3)
+            time.sleep(1.2)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             cards = soup.select('a[href*="/empresa/"], a[href*="/negocio/"]')
@@ -650,7 +647,7 @@ class LeadScraper:
                         if href:
                             emp_url = href if href.startswith('http') else f"https://www.encontrei.com{href}"
                             self.driver.get(emp_url)
-                            time.sleep(2)
+                            time.sleep(0.8)
                             emp_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
                             emails = _extract_emails(emp_soup.get_text())
@@ -663,8 +660,7 @@ class LeadScraper:
                                     lead['site'] = a['href']
                                     break
 
-                            if not lead['email'] and lead['site']:
-                                lead = self._enriquecer_lead_com_site(lead)
+                            # Email do site será buscado no final em lote
 
                     if lead['empresa']:
                         leads.append(lead)
@@ -690,7 +686,7 @@ class LeadScraper:
             query = urllib.parse.quote(nicho)
             # OLX usa estado por slug — tenta uma busca geral
             self.driver.get(f"https://www.olx.com.br/brasil?q={query}")
-            time.sleep(3)
+            time.sleep(1.2)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
@@ -707,7 +703,7 @@ class LeadScraper:
                 lead = _empty_lead('OLX')
                 try:
                     self.driver.get(link)
-                    time.sleep(2)
+                    time.sleep(0.8)
                     page_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
                     # Título
@@ -830,7 +826,7 @@ class LeadScraper:
             query = urllib.parse.quote(nicho) if nicho else ''
             url = f"https://www.jucesponline.sp.gov.br/{('?q=' + query) if query else ''}"
             self.driver.get(url)
-            time.sleep(4)
+            time.sleep(1.6)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             rows = soup.select('table tr, .empresa-row, .result-row')
@@ -875,7 +871,7 @@ class LeadScraper:
             url = f"https://www.{domain}/search?find_desc={query}&find_loc={loc_q}"
             
             self.driver.get(url)
-            time.sleep(4)
+            time.sleep(1.6)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             # Selectors for businesses in search results
@@ -893,7 +889,7 @@ class LeadScraper:
                 try:
                     biz_url = f"https://www.{domain}{href}"
                     self.driver.get(biz_url)
-                    time.sleep(2)
+                    time.sleep(0.8)
                     biz_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
                     
                     titulo = biz_soup.find('h1')
@@ -934,7 +930,7 @@ class LeadScraper:
                         break
                         
                     self.driver.back()
-                    time.sleep(1)
+                    time.sleep(0.4)
 
                 except Exception as e:
                     print(f"   ⚠️  Erro no Yelp biz: {str(e)[:50]}")
@@ -970,7 +966,7 @@ class LeadScraper:
             url = f"https://www.linkedin.com/sales/search/people?keywords={query}"
             
             self.driver.get(url)
-            time.sleep(5)
+            time.sleep(2.0)
 
             if "login" in self.driver.current_url:
                 print("   ⚠️  Redirecionado para Login. LinkedIn requer sessão ativa.")
@@ -978,7 +974,7 @@ class LeadScraper:
 
             # Scroll para carregar resultados
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
+            time.sleep(0.8)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
             # Selectors in Sales Navigator are complex, using a generic approach
@@ -1091,20 +1087,47 @@ class LeadScraper:
             print(f"\n🎲 Randomizando {len(todos)} leads encontrados...")
             random.shuffle(todos)
 
-        # ── Enriquecimento CNPJ via BrasilAPI ────────────────
+        # ── Enriquecimento CNPJ via BrasilAPI (Concorrente) ──
         if enriquecer_cnpj:
-            print(f"\n📡 Enriquecendo {sum(1 for l in todos if l.get('cnpj'))} leads com CNPJ via BrasilAPI...")
-            for lead in todos:
-                if lead.get('cnpj'):
-                    cnpj_data = enriquecer_cnpj(lead['cnpj'])
-                    if cnpj_data:
-                        lead = _merge_cnpj_data(lead, cnpj_data)
-                    time.sleep(0.4)  # Rate limit BrasilAPI
+            leads_com_cnpj = [l for l in todos if l.get('cnpj')]
+            print(f"\n📡 Enriquecendo {len(leads_com_cnpj)} leads com CNPJ via BrasilAPI...")
+            
+            def worker_cnpj(lead):
+                try:
+                    data = enriquecer_cnpj(lead['cnpj'])
+                    if data:
+                        _merge_cnpj_data(lead, data)
+                except Exception:
+                    pass
+                time.sleep(0.2)
+                
+            # Limitado a 5 workers para não engasgar a BrasilAPI (+Sleep de 0.2s)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                list(executor.map(worker_cnpj, leads_com_cnpj))
 
-        # ── Verificação de site (se ainda não feita) ─────────
-        for lead in todos:
-            if lead.get('site') and not lead.get('tem_site'):
-                lead['tem_site'] = verificar_site(lead['site'])
+        # ── Verificação de site e Extração de Emails em Lote ──
+        print(f"\n🌐 Checando {len(todos)} leads para verificação de site...")
+        def check_site(l):
+            if l.get('site') and not l.get('tem_site'):
+                l['tem_site'] = verificar_site(l['site'])
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            list(executor.map(check_site, todos))
+            
+        leads_para_extrair = [l for l in todos if l.get('site') and l.get('tem_site') and not l.get('email')]
+        if leads_para_extrair:
+            print(f"\n📧 Extraindo emails em lote de {len(leads_para_extrair)} sites...")
+            extrator = EmailExtractor()
+            urls_para_extrair = [l['site'] for l in leads_para_extrair]
+            resultados_emails = extrator.extrair_emails_multiplos_sites(urls_para_extrair, salvar_json=False)
+            
+            # Map resultados por URL ou URL base
+            resultado_por_url = {res['url']: res for res in resultados_emails}
+            
+            for lead in leads_para_extrair:
+                res = resultado_por_url.get(lead['site'])
+                if res and res['sucesso'] and res['emails']:
+                    lead['email'] = res['emails'][0]
 
         # ── Deduplicação ──────────────────────────────────────
         seen_email = set()
