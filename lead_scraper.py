@@ -22,6 +22,7 @@ import urllib.parse
 from datetime import datetime, date
 from typing import List, Dict, Optional, Any
 from dateutil.relativedelta import relativedelta
+import os
 import sys
 import concurrent.futures
 from script import EmailExtractor
