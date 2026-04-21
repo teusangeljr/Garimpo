@@ -55,6 +55,7 @@ class EmailSender:
             # Adiciona corpo
             msg.attach(MIMEText(corpo, 'plain'))
             
+            
             # Adiciona anexo se houver
             if caminho_anexo and os.path.exists(caminho_anexo):
                 with open(caminho_anexo, 'rb') as f:
