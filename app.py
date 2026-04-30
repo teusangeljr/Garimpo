@@ -100,6 +100,7 @@ def processar():
                 return [convert_sets_to_lists(v) for v in obj]
             return obj
 
+
         resposta = convert_sets_to_lists({
             'resultados': resultados,
             'emails_unicos': sorted(list(emails_unicos)),
