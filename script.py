@@ -83,11 +83,16 @@ class EmailExtractor:
         """Extrai emails de um site específico usando requests."""
         resultado = {
             'url': url,
-            'emails': set(),
+            'emails': [],
+            'whatsapp': [],
             'sucesso': False,
             'erro': None,
             'timestamp': datetime.now().isoformat()
         }
+        
+        # Usamos sets internamente para evitar duplicatas
+        emails_set = set()
+        whatsapp_set = set()
         
         if not url.startswith('http'):
             url = 'http://' + url
@@ -101,44 +106,65 @@ class EmailExtractor:
             html = response.text
             soup = BeautifulSoup(html, 'html.parser')
             
-            # 1. Tenta extrair da página principal
-            emails = self._extrair_emails_do_texto(html)
-            
-            # Pega mailtos explicitamente
+            # 1. Emails
+            emails_set.update(self._extrair_emails_do_texto(html))
             links_mailto = soup.find_all('a', href=re.compile(r'^mailto:', re.I))
             for link in links_mailto:
                 email_match = re.search(EMAIL_REGEX, link.get('href', ''))
-                if email_match:
-                    emails.add(email_match.group().lower())
-                    
-            resultado['emails'].update(emails)
+                if email_match: emails_set.add(email_match.group().lower())
+
+            # 2. WhatsApp / Telefones
+            # Busca links wa.me ou api.whatsapp
+            wa_links = soup.find_all('a', href=re.compile(r'wa\.me|api\.whatsapp\.com|whatsapp:', re.I))
+            for wa in wa_links:
+                href = wa.get('href', '')
+                num = re.sub(r'\D', '', href)
+                if len(num) >= 10: whatsapp_set.add(num)
             
-            # 2. Se não encontrou, navega nas sub-páginas de contato
-            if tentar_paginas_contato and not emails:
+            # Busca no texto (Regex melhorado para celular brasileiro)
+            # Aceita: (11) 99999-9999, 11 999999999, 5511999999999, etc.
+            tel_regex = r'(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?9\d{4}[-\s]?\d{4}'
+            tels_no_texto = re.findall(tel_regex, html)
+            for t in tels_no_texto:
+                clean_t = re.sub(r'\D', '', t)
+                if 10 <= len(clean_t) <= 13:
+                    if len(clean_t) == 11 and clean_t.startswith('9'): continue # Ignora números sem DDD
+                    if not clean_t.startswith('55'): clean_t = '55' + clean_t
+                    whatsapp_set.add(clean_t)
+            
+            # 3. Sub-páginas de contato
+            if tentar_paginas_contato and not (emails_set or whatsapp_set):
                 urls_contato = self._buscar_paginas_contato(soup, response.url)
                 for pag in urls_contato:
                     if pag == response.url: continue
                     try:
                         r_contato = self.session.get(pag, timeout=10)
-                        html_contato = r_contato.text
-                        soup_contato = BeautifulSoup(html_contato, 'html.parser')
+                        html_c = r_contato.text
+                        soup_c = BeautifulSoup(html_c, 'html.parser')
                         
-                        emails_contato = self._extrair_emails_do_texto(html_contato)
-                        for lm in soup_contato.find_all('a', href=re.compile(r'^mailto:', re.I)):
-                            em = re.search(EMAIL_REGEX, lm.get('href', ''))
-                            if em: emails_contato.add(em.group().lower())
-                            
-                        if emails_contato:
-                            resultado['emails'].update(emails_contato)
-                            break # Achou, não precisa olhar outras páginas de contato
+                        emails_set.update(self._extrair_emails_do_texto(html_c))
+                        
+                        for wa in soup_c.find_all('a', href=re.compile(r'wa\.me|api\.whatsapp\.com|whatsapp:', re.I)):
+                            num = re.sub(r'\D', '', wa.get('href', ''))
+                            if len(num) >= 10: whatsapp_set.add(num)
+                        
+                        for t in re.findall(tel_regex, html_c):
+                            ct = re.sub(r'\D', '', t)
+                            if 10 <= len(ct) <= 13:
+                                if not ct.startswith('55'): ct = '55' + ct
+                                whatsapp_set.add(ct)
+
+                        if emails_set or whatsapp_set:
+                            break 
                     except Exception:
                         continue
                         
+            resultado['emails'] = list(emails_set)
+            resultado['whatsapp'] = list(whatsapp_set)
             resultado['sucesso'] = True
-            resultado['emails'] = list(resultado['emails'])
             
-            if resultado['emails']:
-                print(f"✅ {url} ({len(resultado['emails'])})")
+            if resultado['emails'] or resultado['whatsapp']:
+                print(f"✅ {url} (E:{len(resultado['emails'])} W:{len(resultado['whatsapp'])})")
             
         except Exception as e:
             res_erro = str(e)[:100]

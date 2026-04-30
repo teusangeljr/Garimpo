@@ -26,6 +26,8 @@ import os
 import sys
 import concurrent.futures
 from script import EmailExtractor
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 # ─── Constantes ───────────────────────────────────────────────
 EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
 
@@ -110,11 +112,10 @@ def enriquecer_cnpj(cnpj: str) -> Optional[Dict]:
         )
         if r.status_code == 200:
             return r.json()
-        # Fallback: ReceitaWS
-        time.sleep(0.2)
+        # Fallback rápido: ReceitaWS
         r2 = requests.get(
             f"{RECEITAWS_BASE}/{cnpj_clean}",
-            headers=HEADERS, timeout=10
+            headers=HEADERS, timeout=5
         )
         if r2.status_code == 200:
             return r2.json()
@@ -291,6 +292,20 @@ class LeadScraper:
         self.browser  = browser.lower()
         self.driver   = None
         self.wait     = None
+        self.session  = self._configurar_sessao()
+
+    def _configurar_sessao(self) -> requests.Session:
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            backoff_factor=1
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers.update(HEADERS)
+        return session
 
     # ─── Driver ──────────────────────────────────────────────
 
@@ -349,8 +364,8 @@ class LeadScraper:
         else:
             self.driver = webdriver.Edge(options=opts)
 
-        self.driver.set_page_load_timeout(20) # Reduzido de 30 para 20
-        self.wait = WebDriverWait(self.driver, 10)
+        self.driver.set_page_load_timeout(15)
+        self.wait = WebDriverWait(self.driver, 8)
 
     def _fechar_driver(self):
         if self.driver:
@@ -451,77 +466,139 @@ class LeadScraper:
         print(f"\n🗺️  Google Maps: '{query}'")
 
         try:
+            self._iniciar_driver() # Lazy init
             url = f"https://www.google.com/maps/search/{urllib.parse.quote(query)}"
             self.driver.get(url)
-            time.sleep(1.6)
+            
+            # Espera carregar o feed
+            try:
+                self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[role="feed"]')))
+            except:
+                pass
 
-            for _ in range(6):
+            # Scroll mais eficiente
+            for _ in range(4):
                 try:
                     painel = self.driver.find_element(By.CSS_SELECTOR, 'div[role="feed"]')
-                    self.driver.execute_script(
-                        "arguments[0].scrollTop += 1200;", painel
-                    )
-                    time.sleep(0.6)
+                    self.driver.execute_script("arguments[0].scrollTop += 2000;", painel)
+                    time.sleep(0.5)
                 except Exception:
                     break
 
-            cards = self.driver.find_elements(By.CSS_SELECTOR, 'a.hfpxzc')
-            print(f"   {len(cards)} negócios encontrados")
+            # Variedade: Pega mais resultados e escolhe aleatoriamente
+            pool_results = self.driver.find_elements(By.CSS_SELECTOR, 'a.hfpxzc')
+            random.shuffle(pool_results)
+            print(f"   {len(pool_results)} negócios encontrados (Pool: {len(pool_results)})")
 
-            for card in cards[:max_results]:
+            for card in pool_results[:max_results]:
                 lead = _empty_lead('Google Maps')
                 try:
                     nome = card.get_attribute('aria-label') or ''
                     lead['nome'] = nome
                     lead['empresa'] = nome
-                    card.click()
-                    time.sleep(0.8)
+                    
+                    # Usa JS para clicar e evitar problemas de visibilidade
+                    self.driver.execute_script("arguments[0].click();", card)
+                    time.sleep(0.5) # Espera mínima para carregar detalhes
 
                     # Site
                     try:
-                        site_btn = self.driver.find_element(
-                            By.CSS_SELECTOR, 'a[data-item-id="authority"]'
-                        )
-                        lead['site'] = site_btn.get_attribute('href') or ''
-                    except Exception:
-                        pass
+                        site_el = self.driver.find_elements(By.CSS_SELECTOR, 'a[data-item-id="authority"]')
+                        if site_el:
+                            lead['site'] = site_el[0].get_attribute('href') or ''
+                    except: pass
 
                     # Telefone
                     try:
-                        tel_el = self.driver.find_element(
-                            By.CSS_SELECTOR, 'button[data-item-id^="phone"]'
-                        )
-                        lead['telefone'] = (tel_el.get_attribute('aria-label') or '').replace('Telefone: ', '')
-                    except Exception:
-                        pass
+                        tel_el = self.driver.find_elements(By.CSS_SELECTOR, 'button[data-item-id^="phone"]')
+                        if tel_el:
+                            lead['telefone'] = (tel_el[0].get_attribute('aria-label') or '').replace('Telefone: ', '')
+                    except: pass
 
                     # Endereço
                     try:
-                        addr = self.driver.find_element(
-                            By.CSS_SELECTOR, 'button[data-item-id="address"]'
-                        )
-                        lead['endereco'] = addr.get_attribute('aria-label') or ''
-                    except Exception:
-                        pass
-
-                    # Email do site já não é buscado sincronamente aqui
+                        addr_el = self.driver.find_elements(By.CSS_SELECTOR, 'button[data-item-id="address"]')
+                        if addr_el:
+                            lead['endereco'] = addr_el[0].get_attribute('aria-label') or ''
+                    except: pass
 
                     leads.append(lead)
-                    print(f"   ✅ {lead['empresa']} | email: {lead['email'] or '—'}")
+                    print(f"   ✅ {lead['empresa']}")
 
                 except Exception as e:
-                    print(f"   ⚠️  {str(e)[:50]}")
-                    try:
-                        if 'google.com/maps' not in self.driver.current_url:
-                            self.driver.back()
-                            time.sleep(0.4)
-                    except Exception:
-                        pass
+                    print(f"   ⚠️  Maps item: {str(e)[:40]}")
+                    continue
 
         except Exception as e:
             print(f"   ❌ Google Maps erro: {str(e)[:80]}")
 
         return leads
+
+    def buscar_sites_de_url_google_maps(self, url: str) -> List[str]:
+        """Abre uma URL direta do Google Maps e extrai os sites listados nela."""
+        sites = []
+        print(f"\n🗺️  Google Maps Direto: '{url[:60]}...'")
+
+        try:
+            self._iniciar_driver() # Lazy init
+            self.driver.get(url)
+            time.sleep(2) # Espera carregar inicial
+            
+            # Tenta verificar se é uma página de um lugar específico (já aberto)
+            try:
+                site_el = self.driver.find_elements(By.CSS_SELECTOR, 'a[data-item-id="authority"]')
+                if site_el:
+                    href = site_el[0].get_attribute('href')
+                    if href:
+                        sites.append(href)
+                        print(f"   Encontrado site direto do lugar: {href}")
+                        # Pode haver outros na tela de "Lugares parecidos", mas priorizamos o principal
+                        if len(self.driver.find_elements(By.CSS_SELECTOR, 'a.hfpxzc')) == 0:
+                            return sites
+            except: pass
+
+            # Se não for um lugar específico ou for uma busca
+            try:
+                self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[role="feed"]')))
+            except:
+                pass
+
+            # Scroll no painel para carregar resultados
+            for _ in range(6):
+                try:
+                    painel = self.driver.find_element(By.CSS_SELECTOR, 'div[role="feed"]')
+                    self.driver.execute_script("arguments[0].scrollTop += 3000;", painel)
+                    time.sleep(0.5)
+                except Exception:
+                    break
+
+            pool_results = self.driver.find_elements(By.CSS_SELECTOR, 'a.hfpxzc')
+            print(f"   {len(pool_results)} negócios encontrados no mapa")
+
+            for card in pool_results[:25]: # Extrai até 25 sites para não demorar demais
+                try:
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card)
+                    time.sleep(0.1)
+                    self.driver.execute_script("arguments[0].click();", card)
+                    time.sleep(0.8) # Espera carregar detalhes
+                    
+                    try:
+                        site_els = self.driver.find_elements(By.CSS_SELECTOR, 'a[data-item-id="authority"]')
+                        if site_els:
+                            href = site_els[0].get_attribute('href')
+                            if href and href not in sites and 'google.com' not in href:
+                                sites.append(href)
+                                print(f"   ✅ Extraído: {href}")
+                    except: pass
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"   ❌ Google Maps URL erro: {str(e)[:80]}")
+        finally:
+            self._fechar_driver()
+
+        return sites
 
     # ─── 2. CNPJ.biz (normal + por CNAE) ────────────────────
 
@@ -530,12 +607,17 @@ class LeadScraper:
         print(f"\n🏢 CNPJ.biz: '{nicho}' em '{localizacao}'")
         try:
             query = urllib.parse.quote(f"{nicho} {localizacao}")
-            self.driver.get(f"https://cnpj.biz/procura/{query}")
-            time.sleep(1.2)
+            url = f"https://cnpj.biz/procura/{query}"
+            
+            r = self.session.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f"   ⚠️ CNPJ.biz retornou status {r.status_code}")
+                return leads
 
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            soup = BeautifulSoup(r.text, 'html.parser')
             links = soup.select('a[href*="/cnpj/"]')
-            print(f"   {len(links)} resultados")
+            random.shuffle(links)
+            print(f"   {len(links)} resultados encontrados (Pool)")
 
             for link in links[:max_results]:
                 lead = _empty_lead('CNPJ.biz')
@@ -554,22 +636,24 @@ class LeadScraper:
                     if cnpj_match:
                         lead['cnpj'] = cnpj_match.group(1)
 
-                    self.driver.get(emp_url)
-                    time.sleep(0.8)
-                    emp_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                    # Tenta pegar detalhes via requests
+                    re_emp = self.session.get(emp_url, timeout=10)
+                    if re_emp.status_code == 200:
+                        emp_soup = BeautifulSoup(re_emp.text, 'html.parser')
+                        
+                        for a in emp_soup.find_all('a', href=True):
+                            href_a = a['href']
+                            if (href_a.startswith('http') and
+                                    'cnpj.biz' not in href_a and
+                                    'google' not in href_a and
+                                    'facebook' not in href_a and
+                                    'instagram' not in href_a):
+                                lead['site'] = href_a
+                                break
 
-                    for a in emp_soup.find_all('a', href=True):
-                        if (a['href'].startswith('http') and
-                                'cnpj.biz' not in a['href'] and
-                                'google' not in a['href']):
-                            lead['site'] = a['href']
-                            break
-
-                    emails = _extract_emails(emp_soup.get_text())
-                    if emails:
-                        lead['email'] = emails[0]
-
-                    # Email do site será buscado no final em lote
+                        emails = _extract_emails(emp_soup.get_text())
+                        if emails:
+                            lead['email'] = emails[0]
 
                     leads.append(lead)
                     print(f"   ✅ {lead['empresa']} | email: {lead['email'] or '—'}")
@@ -591,16 +675,18 @@ class LeadScraper:
 
         try:
             # QueroCNPJ por CNAE
-            mun_slug = municipio.lower().replace(' ', '-') if municipio else ''
+            mun_q = urllib.parse.quote(municipio) if municipio else ''
             url = (
                 f"https://querocnpj.com.br/empresas?cnae={cnae_clean}"
                 f"&uf={uf.upper()}"
-                + (f"&municipio={urllib.parse.quote(municipio)}" if municipio else '')
+                + (f"&municipio={mun_q}" if municipio else '')
             )
-            self.driver.get(url)
-            time.sleep(1.2)
+            r = self.session.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f"   ⚠️ CNAE Search retornou status {r.status_code}")
+                return leads
 
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            soup = BeautifulSoup(r.text, 'html.parser')
 
             # Tenta extrair CNPJs ou nomes de empresa
             cnpj_links = soup.select('a[href*="cnpj"]')
@@ -636,13 +722,19 @@ class LeadScraper:
         try:
             nicho_s = nicho.lower().replace(' ', '-')
             loc_s   = localizacao.lower().replace(' ', '-')
-            self.driver.get(f"https://www.encontrei.com/{nicho_s}/{loc_s}")
-            time.sleep(1.2)
+            url = f"https://www.encontrei.com/{nicho_s}/{loc_s}"
+            
+            r = self.session.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f"   ⚠️ Encontrei retornou status {r.status_code}")
+                return leads
 
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            soup = BeautifulSoup(r.text, 'html.parser')
+            # Variedade: Pega os resultados e embaralha antes de limitar
             cards = soup.select('a[href*="/empresa/"], a[href*="/negocio/"]')
             cards += soup.select('div.empresa-card, article.business-card, .listing-item')
-            print(f"   {len(cards)} resultados")
+            random.shuffle(cards)
+            print(f"   {len(cards)} resultados encontrados (Pool)")
 
             for card in cards[:max_results]:
                 lead = _empty_lead('Encontrei.com.br')
@@ -657,21 +749,23 @@ class LeadScraper:
                         href = link_el.get('href', '')
                         if href:
                             emp_url = href if href.startswith('http') else f"https://www.encontrei.com{href}"
-                            self.driver.get(emp_url)
-                            time.sleep(0.8)
-                            emp_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                            
+                            r_emp = self.session.get(emp_url, timeout=10)
+                            if r_emp.status_code == 200:
+                                emp_soup = BeautifulSoup(r_emp.text, 'html.parser')
 
-                            emails = _extract_emails(emp_soup.get_text())
-                            if emails:
-                                lead['email'] = emails[0]
+                                emails = _extract_emails(emp_soup.get_text())
+                                if emails:
+                                    lead['email'] = emails[0]
 
-                            for a in emp_soup.find_all('a', href=True):
-                                if (a['href'].startswith('http') and
-                                        'encontrei.com' not in a['href']):
-                                    lead['site'] = a['href']
-                                    break
-
-                            # Email do site será buscado no final em lote
+                                for a in emp_soup.find_all('a', href=True):
+                                    href_a = a['href']
+                                    if (href_a.startswith('http') and
+                                            'encontrei.com' not in href_a and
+                                            'facebook' not in href_a and
+                                            'instagram' not in href_a):
+                                        lead['site'] = href_a
+                                        break
 
                     if lead['empresa']:
                         leads.append(lead)
@@ -695,11 +789,14 @@ class LeadScraper:
 
         try:
             query = urllib.parse.quote(nicho)
-            # OLX usa estado por slug — tenta uma busca geral
-            self.driver.get(f"https://www.olx.com.br/brasil?q={query}")
-            time.sleep(1.2)
+            url = f"https://www.olx.com.br/brasil?q={query}"
+            
+            r = self.session.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f"   ⚠️ OLX retornou status {r.status_code}")
+                return leads
 
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            soup = BeautifulSoup(r.text, 'html.parser')
 
             # Links de anúncio
             ad_links = soup.select('a[href*=".olx.com.br/"]')
@@ -713,28 +810,28 @@ class LeadScraper:
             for link in ad_links[:max_results]:
                 lead = _empty_lead('OLX')
                 try:
-                    self.driver.get(link)
-                    time.sleep(0.8)
-                    page_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                    r_ad = self.session.get(link, timeout=10)
+                    if r_ad.status_code == 200:
+                        page_soup = BeautifulSoup(r_ad.text, 'html.parser')
 
-                    # Título
-                    titulo = page_soup.select_one('h1')
-                    if titulo:
-                        lead['empresa'] = titulo.get_text(strip=True)
-                        lead['nome']    = lead['empresa']
+                        # Título
+                        titulo = page_soup.select_one('h1')
+                        if titulo:
+                            lead['empresa'] = titulo.get_text(strip=True)
+                            lead['nome']    = lead['empresa']
 
-                    # Descrição / texto da página
-                    texto = page_soup.get_text()
+                        # Descrição / texto da página
+                        texto = page_soup.get_text()
 
-                    # Email
-                    emails = _extract_emails(texto)
-                    if emails:
-                        lead['email'] = emails[0]
+                        # Email
+                        emails = _extract_emails(texto)
+                        if emails:
+                            lead['email'] = emails[0]
 
-                    # Telefone
-                    tel = re.search(r'\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}', texto)
-                    if tel:
-                        lead['telefone'] = tel.group()
+                        # Telefone
+                        tel = re.search(r'\(?\d{2}\)?\s?\d{4,5}[-\s]?\d{4}', texto)
+                        if tel:
+                            lead['telefone'] = tel.group()
 
                     if lead['empresa']:
                         leads.append(lead)
@@ -881,13 +978,15 @@ class LeadScraper:
             loc_q = urllib.parse.quote(localizacao)
             url = f"https://www.{domain}/search?find_desc={query}&find_loc={loc_q}"
             
-            self.driver.get(url)
-            time.sleep(1.6)
+            r = self.session.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f"   ⚠️ Yelp retornou status {r.status_code}")
+                return leads
 
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+            soup = BeautifulSoup(r.text, 'html.parser')
             # Selectors for businesses in search results
             biz_links = soup.select('a[href*="/biz/"]')
-            # Filter unique biz links that are likely results (usually have a name or biz-name class)
+            # Filter unique biz links
             seen_hrefs = set()
             
             for link in biz_links:
@@ -899,49 +998,47 @@ class LeadScraper:
                 lead = _empty_lead(f'Yelp {domain}')
                 try:
                     biz_url = f"https://www.{domain}{href}"
-                    self.driver.get(biz_url)
-                    time.sleep(0.8)
-                    biz_soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-                    
-                    titulo = biz_soup.find('h1')
-                    if titulo:
-                        lead['empresa'] = titulo.get_text(strip=True)
-                        lead['nome']    = lead['empresa']
-                    
-                    # Site
-                    for a in biz_soup.find_all('a', href=True):
-                        if '/biz_redir' in a['href']:
-                            parsed_url = urllib.parse.parse_qs(urllib.parse.urlparse(a['href']).query)
-                            if 'url' in parsed_url:
-                                lead['site'] = parsed_url['url'][0]
-                                break
-                    
-                    # Telefone
-                    tel_tag = biz_soup.find(string=re.compile(r'Phone number|Teléfono'))
-                    if tel_tag:
-                        # Try to find the next sibling or parent containing the phone
-                        parent = tel_tag.find_parent()
-                        if parent:
-                            lead['telefone'] = parent.get_text(strip=True).replace('Phone number', '').replace('Teléfono', '')
+                    r_biz = self.session.get(biz_url, timeout=10)
+                    if r_biz.status_code == 200:
+                        biz_soup = BeautifulSoup(r_biz.text, 'html.parser')
+                        
+                        titulo = biz_soup.find('h1')
+                        if titulo:
+                            lead['empresa'] = titulo.get_text(strip=True)
+                            lead['nome']    = lead['empresa']
+                        
+                        # Site
+                        for a in biz_soup.find_all('a', href=True):
+                            if '/biz_redir' in a['href']:
+                                parsed_url = urllib.parse.parse_qs(urllib.parse.urlparse(a['href']).query)
+                                if 'url' in parsed_url:
+                                    lead['site'] = parsed_url['url'][0]
+                                    break
+                        
+                        # Telefone
+                        tel_tag = biz_soup.find(string=re.compile(r'Phone number|Teléfono'))
+                        if tel_tag:
+                            parent = tel_tag.find_parent()
+                            if parent:
+                                lead['telefone'] = parent.get_text(strip=True).replace('Phone number', '').replace('Teléfono', '')
 
-                    # Endereço
-                    addr_tag = biz_soup.find(string=re.compile(r'Get Directions|Cómo llegar'))
-                    if addr_tag:
-                        parent = addr_tag.find_parent('p')
-                        if parent:
-                            lead['endereco'] = parent.get_text(strip=True).replace('Get Directions', '').replace('Cómo llegar', '')
+                        # Endereço
+                        addr_tag = biz_soup.find(string=re.compile(r'Get Directions|Cómo llegar'))
+                        if addr_tag:
+                            parent = addr_tag.find_parent('p')
+                            if parent:
+                                lead['endereco'] = parent.get_text(strip=True).replace('Get Directions', '').replace('Cómo llegar', '')
 
                     if lead['empresa']:
-                        if lead['site']:
-                            lead = self._enriquecer_lead_com_site(lead)
+                        # Extração de email do site se houver
+                        if lead['site'] and not lead['email']:
+                            lead['tem_site'] = verificar_site(lead['site'])
+                        
                         leads.append(lead)
                         print(f"   ✅ {lead['empresa']} | email: {lead['email'] or '—'}")
 
                     if len(leads) >= max_results:
                         break
-                        
-                    self.driver.back()
-                    time.sleep(0.4)
 
                 except Exception as e:
                     print(f"   ⚠️  Erro no Yelp biz: {str(e)[:50]}")
@@ -988,9 +1085,10 @@ class LeadScraper:
             time.sleep(0.8)
 
             soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-            # Selectors in Sales Navigator are complex, using a generic approach
+            # Variedade: Pega os resultados e embaralha antes de limitar
             items = soup.select('li.artdeco-list__item')
-            print(f"   {len(items)} perfis encontrados")
+            random.shuffle(items)
+            print(f"   {len(items)} perfis encontrados (Pool)")
 
             for item in items[:max_results]:
                 lead = _empty_lead('LinkedIn')
@@ -1052,44 +1150,55 @@ class LeadScraper:
         enriquece com dados da Receita Federal e aplica filtros.
         """
         print(f"\n{'='*60}")
-        print(f"🔍 Prospecção iniciada")
+        print(f"🔍 Prospecção iniciada (MODO VELOZ)")
         print(f"   Nicho: {nicho or '—'}  |  Local: {localizacao or '—'}")
         print(f"   CNAE: {cnae or '—'}  |  UF: {uf or '—'}  |  Município: {municipio or '—'}")
         print(f"{'='*60}")
 
         todos = []
+        
+        # ─── Fontes que não precisam de Selenium (Paralelas) ───
+        tarefas_requests = []
+        
+        if usar_cnpj_biz and nicho and localizacao:
+            tarefas_requests.append((self.buscar_cnpj_biz, (nicho, localizacao, max_por_fonte)))
+        
+        if usar_encontrei and nicho and localizacao:
+            tarefas_requests.append((self.buscar_encontrei, (nicho, localizacao, max_por_fonte)))
+            
+        if usar_olx and nicho:
+            tarefas_requests.append((self.buscar_olx, (nicho, localizacao, max_por_fonte)))
+            
+        if usar_mercado_livre and nicho:
+            tarefas_requests.append((self.buscar_mercado_livre, (nicho, localizacao, max_por_fonte)))
+            
+        if usar_cnae_search and cnae:
+            uf_search = uf or (localizacao[-2:].upper() if localizacao else '')
+            tarefas_requests.append((self.buscar_por_cnae, (cnae, uf_search, municipio, max_por_fonte)))
+            
+        if usar_yelp and nicho and localizacao:
+            tarefas_requests.append((self.buscar_yelp, (nicho, localizacao, max_por_fonte)))
 
+        if tarefas_requests:
+            print(f"\n🚀 Iniciando {len(tarefas_requests)} fontes em paralelo...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(tarefas_requests)) as executor:
+                futuros = [executor.submit(func, *args) for func, args in tarefas_requests]
+                for f in concurrent.futures.as_completed(futuros):
+                    try:
+                        todos.extend(f.result())
+                    except Exception as e:
+                        print(f"   ⚠️ Erro em fonte paralela: {e}")
+
+        # ─── Fontes que precisam de Selenium (Sequenciais para evitar conflito de driver) ───
         try:
-            self._iniciar_driver()
-
             if usar_google_maps and nicho and localizacao:
                 todos.extend(self.buscar_google_maps(nicho, localizacao, max_por_fonte))
-
-            if usar_cnpj_biz and nicho and localizacao:
-                todos.extend(self.buscar_cnpj_biz(nicho, localizacao, max_por_fonte))
-
-            if usar_encontrei and nicho and localizacao:
-                todos.extend(self.buscar_encontrei(nicho, localizacao, max_por_fonte))
-
-            if usar_olx and nicho:
-                todos.extend(self.buscar_olx(nicho, localizacao, max_por_fonte))
-
-            if usar_mercado_livre and nicho:
-                todos.extend(self.buscar_mercado_livre(nicho, localizacao, max_por_fonte))
 
             if usar_jucesp:
                 todos.extend(self.buscar_jucesp(nicho, max_por_fonte))
 
-            if usar_cnae_search and cnae:
-                uf_search = uf or (localizacao[-2:].upper() if localizacao else '')
-                todos.extend(self.buscar_por_cnae(cnae, uf_search, municipio, max_por_fonte))
-
-            if usar_yelp and nicho and localizacao:
-                todos.extend(self.buscar_yelp(nicho, localizacao, max_por_fonte))
-
             if usar_linkedin and nicho:
                 todos.extend(self.buscar_linkedin(nicho, localizacao, max_por_fonte))
-
         finally:
             self._fechar_driver()
 
@@ -1110,7 +1219,7 @@ class LeadScraper:
                         _merge_cnpj_data(lead, data)
                 except Exception:
                     pass
-                time.sleep(0.2)
+                
                 
             # Limitado a 5 workers para não engasgar a BrasilAPI (+Sleep de 0.2s)
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -1127,26 +1236,40 @@ class LeadScraper:
             
         leads_para_extrair = [l for l in todos if l.get('site') and l.get('tem_site') and not l.get('email')]
         if leads_para_extrair:
-            print(f"\n📧 Extraindo emails em lote de {len(leads_para_extrair)} sites...")
+            # Limite para não travar a requisição síncrona
+            leads_para_extrair = leads_para_extrair[:8] 
+            print(f"\n📧 Extraindo emails em lote de {len(leads_para_extrair)} sites (limite síncrono)...")
             extrator = EmailExtractor()
             urls_para_extrair = [l['site'] for l in leads_para_extrair]
-            resultados_emails = extrator.extrair_emails_multiplos_sites(urls_para_extrair, salvar_json=False)
             
-            # Map resultados por URL ou URL base
-            resultado_por_url = {res['url']: res for res in resultados_emails}
-            
-            for lead in leads_para_extrair:
-                res = resultado_por_url.get(lead['site'])
-                if res and res['sucesso'] and res['emails']:
-                    lead['email'] = res['emails'][0]
+            # Timeout rígido de 25 segundos para a extração total
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                    futuros = {executor.submit(extrator.extrair_emails_site, url): url for url in urls_para_extrair}
+                    done, not_done = concurrent.futures.wait(futuros, timeout=25)
+                    
+                    for f in done:
+                        res = f.result()
+                        # Procura o lead correspondente
+                        for lead in leads_para_extrair:
+                            if lead['site'] == res['url'] and res['sucesso'] and res['emails']:
+                                lead['email'] = res['emails'][0]
+                                break
+                    
+                    # Cancela os que não terminaram
+                    for f in not_done:
+                        f.cancel()
+            except Exception as e:
+                print(f"⚠️ Erro parcial na extração de emails: {e}")
 
         # ── Deduplicação ──────────────────────────────────────
         seen_email = set()
         seen_company = set()
         unicos = []
         for lead in todos:
-            ek = lead['email'].lower() if lead['email'] else None
+            ek = lead['email'].lower().strip() if lead['email'] else None
             ck = lead['empresa'].lower().strip() if lead['empresa'] else None
+            # Prioriza quem tem email
             if ek and ek in seen_email:
                 continue
             if not ek and ck and ck in seen_company:

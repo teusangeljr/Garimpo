@@ -10,8 +10,8 @@ import threading
 import time
 import requests
 from werkzeug.utils import secure_filename
-from celery_app import celery
-import tasks
+# from celery_app import celery
+# import tasks
 
 app = Flask(__name__)
 CORS(app)
@@ -42,12 +42,80 @@ def processar():
         if not data or 'urls' not in data:
             return jsonify({'erro': 'URLs não fornecidas'}), 400
         
-        # Dispara tarefa Celery
-        job = tasks.task_extrair_emails.delay(data)
-        return jsonify({'job_id': job.id, 'status': 'queued'})
+        urls = data.get('urls', [])
+        tentar_paginas_contato = data.get('tentar_paginas_contato', True)
+        
+        urls_finais = []
+        maps_urls = []
+        
+        for u in urls:
+            if 'google.com/maps' in u.lower():
+                maps_urls.append(u)
+            else:
+                urls_finais.append(u)
+                
+        if maps_urls:
+            print(f"Detectadas {len(maps_urls)} URLs do Google Maps. Extraindo sites...")
+            scraper = LeadScraper(headless=True)
+            for m_url in maps_urls:
+                sites_extraidos = scraper.buscar_sites_de_url_google_maps(m_url)
+                urls_finais.extend(sites_extraidos)
+            
+            # Remove duplicatas preservando os novos sites
+            urls_finais = list(set(urls_finais))
+            print(f"Extração do Maps concluída. Total de URLs a processar: {len(urls_finais)}")
+            
+        if not urls_finais:
+             return jsonify({'erro': 'Nenhuma URL de site (com domínio válido) pôde ser extraída.'}), 400
+        
+        extrator = EmailExtractor()
+        resultados = extrator.extrair_emails_multiplos_sites(
+            urls=urls_finais,
+            tentar_paginas_contato=tentar_paginas_contato,
+            salvar_json=False
+        )
+        
+        # Coleta todos os emails e whatsapps únicos
+        emails_unicos = set()
+        whatsapp_unicos = set()
+        
+        # Sanitizar resultados para garantir que não haja sets
+        for res in resultados:
+            if 'emails' in res and isinstance(res['emails'], set):
+                res['emails'] = list(res['emails'])
+            if 'whatsapp' in res and isinstance(res['whatsapp'], set):
+                res['whatsapp'] = list(res['whatsapp'])
+                
+            if res.get('sucesso'):
+                if res.get('emails'): emails_unicos.update(res['emails'])
+                if res.get('whatsapp'): whatsapp_unicos.update(res['whatsapp'])
+                
+        # Função auxiliar para remover todos os sets recursivamente
+        def convert_sets_to_lists(obj):
+            if isinstance(obj, set):
+                return list(obj)
+            elif isinstance(obj, dict):
+                return {k: convert_sets_to_lists(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_sets_to_lists(v) for v in obj]
+            return obj
+
+        resposta = convert_sets_to_lists({
+            'resultados': resultados,
+            'emails_unicos': sorted(list(emails_unicos)),
+            'whatsapp_unicos': sorted(list(whatsapp_unicos)),
+            'timestamp': datetime.now().isoformat(),
+            'total_sites': len(urls_finais),
+            'total_emails': len(emails_unicos),
+            'total_whatsapp': len(whatsapp_unicos)
+        })
+        
+        return jsonify(resposta)
     
     except Exception as e:
-        print(f"Erro ao disparar extração: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"Erro na extração: {e}")
         return jsonify({'erro': str(e)}), 500
 
 @app.route('/upload-anexo', methods=['POST'])
@@ -113,16 +181,41 @@ def buscar_leads():
     """Endpoint assíncrono para busca de leads"""
     try:
         data = request.get_json()
-        # Validação mínima
         if not data.get('nicho') and not data.get('cnae') and not data.get('localizacao') and not data.get('uf'):
              return jsonify({'erro': 'Parâmetros de busca insuficientes'}), 400
 
-        # Dispara tarefa Celery
-        job = tasks.task_buscar_leads.delay(data)
-        return jsonify({'job_id': job.id, 'status': 'queued'})
+        scraper = LeadScraper(
+            headless=data.get('headless', True),
+            browser=data.get('browser', 'edge')
+        )
+        
+        resultado = scraper.buscar_leads(
+            nicho=data.get('nicho', ''),
+            localizacao=data.get('localizacao', ''),
+            cargo=data.get('cargo', ''),
+            cnae=data.get('cnae', ''),
+            uf=data.get('uf', ''),
+            municipio=data.get('municipio', ''),
+            usar_google_maps=data.get('usar_google_maps', True),
+            usar_cnpj_biz=data.get('usar_cnpj_biz', True),
+            usar_encontrei=data.get('usar_encontrei', True),
+            usar_olx=data.get('usar_olx', False),
+            usar_mercado_livre=data.get('usar_mercado_livre', False),
+            usar_jucesp=data.get('usar_jucesp', False),
+            usar_cnae_search=data.get('usar_cnae_search', False),
+            usar_yelp=data.get('usar_yelp', False),
+            usar_linkedin=data.get('usar_linkedin', False),
+            enriquecer_cnpj=data.get('enriquecer_cnpj', True),
+            max_por_fonte=data.get('max_por_fonte', 15),
+            filtros=data.get('filtros'),
+        )
+        
+        return jsonify(resultado)
 
     except Exception as e:
-        print(f"Erro ao disparar busca de leads: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"Erro na busca de leads: {e}")
         return jsonify({'erro': str(e)}), 500
 
 @app.route('/api/job/<job_id>')

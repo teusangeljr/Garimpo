@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="shortcut icon" href="./public/logo.png" type="image/x-icon">
+<title>GRAVIT.</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Orbitron:wght@400;700;900&family=Inter:wght@100;300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #030306;
+    --bg-accent: #08080f;
+    --card-bg: rgba(12, 12, 20, 0.6);
+    --primary: #E8500A;
+    --primary-glow: rgba(232, 80, 10, 0.4);
+    --primary-dim: rgba(232, 80, 10, 0.1);
+    --white: #F8F9FA;
+    --gray: #9CA3AF;
+    --border: rgba(255, 255, 255, 0.05);
+    --border-hover: rgba(232, 80, 10, 0.3);
+    --nebula-1: rgba(66, 0, 140, 0.1);
+    --nebula-2: rgba(0, 110, 200, 0.08);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; overflow-x: hidden; max-width: 100vw; }
+
+  body {
+    background: var(--bg);
+    color: var(--white);
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    max-width: 100vw;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Starfield & Nebula Background */
+  .cosmos-bg {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: -1;
+    background: 
+      radial-gradient(circle at 15% 25%, var(--nebula-1), transparent 45%),
+      radial-gradient(circle at 85% 75%, var(--nebula-2), transparent 45%);
+    background-color: var(--bg);
+  }
+
+  #stars-canvas {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+  }
+
+  .container { 
+    max-width: 1100px; 
+    margin: 0 auto; 
+    padding: 0 24px; 
+  }
+
+  /* HEADER & LANG */
+  header {
+    position: fixed;
+    top: 0; left: 0; width: 100%;
+    z-index: 100;
+    padding: 20px 0;
+    background: rgba(3, 3, 6, 0.7);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 40px;
+  }
+
+  .nav-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 20px;
+    letter-spacing: 4px;
+    text-decoration: none;
+    color: var(--white);
+  }
+  .nav-logo span { color: var(--primary); }
+
+  .lang-toggle {
+    display: flex;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 4px;
+    flex-shrink: 0;
+    display: flex;
+    white-space: nowrap;
+  }
+
+  .lang-btn {
+    background: transparent;
+    border: none;
+    color: var(--gray);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+  }
+
+  .lang-btn.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 0 15px var(--primary-glow);
+  }
+
+  @media (max-width: 768px) {
+    .services-grid { grid-template-columns: 1fr; }
+    .hero { padding: 140px 0 60px; }
+    .why-grid { grid-template-columns: 1fr; }
+    .cta-box { padding: 60px 24px; }
+    .btn-primary { width: 100%; justify-content: center; }
+  }
+
+  @media (max-width: 480px) {
+    header { padding: 12px 0; }
+    .nav-logo { font-size: 16px; letter-spacing: 2px; }
+    .lang-btn { padding: 5px 10px; font-size: 9px; }
+    .nav-content { height: auto; gap: 8px; justify-content: space-between; flex-wrap: nowrap; }
+    .nav-logo { font-size: 14px; letter-spacing: 1px; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .lang-btn { padding: 4px 8px; font-size: 9px; min-width: 40px; }
+    .lang-toggle { padding: 2px; }
+    
+    .hero { padding: 100px 0 40px; }
+    .hero h1 { font-size: 32px; line-height: 1.1; margin-bottom: 16px; }
+    .hero-sub { font-size: 14px; padding: 0 8px; }
+    
+    .section-header { margin-bottom: 40px; }
+    .section-title { font-size: 24px; }
+    
+    .services-grid { gap: 16px; margin-bottom: 80px; }
+    .card { padding: 24px 20px; border-radius: 16px; }
+    .card-icon { width: 60px; height: 60px; font-size: 28px; margin-bottom: 24px; }
+    .card-title { font-size: 20px; }
+    .card-price { font-size: 36px; flex-wrap: wrap; }
+    .card-price small { font-size: 14px; }
+    
+    .why-section { padding: 60px 0; }
+    
+    .cta-section { padding: 60px 0; }
+    .cta-box { padding: 30px 20px; border-radius: 24px; }
+    .cta-box h2 { font-size: 24px; margin-bottom: 12px; }
+    .cta-box p { font-size: 14px; margin-bottom: 32px; }
+    .btn-primary { padding: 16px 20px; font-size: 16px; width: 100%; justify-content: center; }
+    
+    .container { padding: 0 16px; }
+  }
+
+  /* HERO */
+  .hero {
+    padding: 180px 0 100px;
+    text-align: center;
+    position: relative;
+  }
+
+  .hero-glow {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%; max-width: 800px; height: 500px;
+    background: radial-gradient(circle, rgba(232, 80, 10, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .hero h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(40px, 10vw, 90px);
+    font-weight: 900;
+    letter-spacing: -2px;
+    line-height: 0.95;
+    margin-bottom: 24px;
+    background: linear-gradient(180deg, #fff 0%, #aaa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: fadeUp 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .hero h1 span {
+    color: var(--primary);
+    -webkit-text-fill-color: var(--primary);
+  }
+
+  .hero-tagline {
+    font-family: 'Space Mono', monospace;
+    font-size: clamp(10px, 2vw, 14px);
+    color: var(--primary);
+    
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+    align-items: center;
+    display: flex;
+    justify-content: center;    
+    display: block;
+    animation: fadeUp 1.2s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .hero-sub {
+    font-size: clamp(16px, 2.5vw, 20px);
+    color: var(--gray);
+    max-width: 700px;
+    margin: 0 auto;
+    font-weight: 300;
+    animation: fadeUp 1.2s 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* SECTION LABELS */
+  .section-header {
+    text-align: center;
+    margin-bottom: 60px;
+  }
+
+  .label {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--primary);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(24px, 4vw, 36px);
+    font-weight: 700;
+  }
+
+  /* SERVICES GRID */
+  .services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    margin-bottom: 120px;
+  }
+
+  @media (max-width: 768px) {
+    /* Maintained above in the consolidated media query section */
+  }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 48px 40px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(20px);
+    transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(600px circle at var(--x) var(--y), rgba(232, 80, 10, 0.15), transparent 40%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+
+  .card:hover {
+    border-color: var(--border-hover);
+    transform: translateY(-10px);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  }
+  .card:hover::after { opacity: 1; }
+
+  .card-icon {
+    font-size: 40px;
+    margin-bottom: 32px;
+    background: var(--primary-dim);
+    width: 80px; height: 80px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 20px;
+    color: var(--primary);
+    border: 1px solid rgba(232, 80, 10, 0.1);
+  }
+
+  .card-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .card-sub {
+    font-size: 12px;
+    color: var(--gray);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 40px;
+  }
+
+  .card-price-box {
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    padding-top: 32px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .card-price {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 64px;
+    line-height: 1;
+    color: var(--white);
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    width: 100%;
+    gap: 8px;
+  }
+  .card-price small { font-size: 24px; color: var(--primary); }
+  
+  .card-price-box > div {
+    justify-content: center;
+  }
+
+  .card-note {
+    font-size: 14px;
+    color: var(--gray);
+    margin: 12px 0 24px;
+  }
+
+  .card-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--primary);
+    background: rgba(232, 80, 10, 0.08);
+    padding: 6px 14px;
+    border-radius: 100px;
+    border: 1px solid rgba(232, 80, 10, 0.1);
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+
+  /* WHY SECTION */
+  .why-section {
+    padding: 100px 0;
+    background: radial-gradient(50% 50% at 50% 50%, rgba(232, 80, 10, 0.03) 0%, transparent 100%);
+  }
+
+  .why-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 24px;
+  }
+
+  .why-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    padding: 32px;
+    border-radius: 20px;
+    transition: 0.3s;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .why-card:hover { border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); }
+
+  .why-card h4 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 16px;
+    margin-bottom: 12px;
+    color: var(--white);
+  }
+
+  .why-card p {
+    font-size: 14px;
+    color: var(--gray);
+    line-height: 1.6;
+  }
+
+  /* CTA */
+  .cta-section {
+    padding: 140px 0;
+    text-align: center;
+  }
+
+  .cta-box {
+    background: linear-gradient(145deg, rgba(232, 80, 10, 0.05), rgba(10, 10, 15, 0.9));
+    border: 1px solid var(--border-hover);
+    border-radius: 40px;
+    padding: 80px 40px;
+    backdrop-filter: blur(20px);
+  }
+
+  .cta-box h2 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(32px, 6vw, 56px);
+    margin-bottom: 16px;
+  }
+
+  .cta-box p {
+    color: var(--gray);
+    font-size: 18px;
+    margin-bottom: 48px;
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--primary);
+    color: white;
+    padding: 20px 48px;
+    border-radius: 100px;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 18px;
+    transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow: 0 10px 30px rgba(232, 80, 10, 0.3);
+  }
+
+  .btn-primary:hover {
+    transform: scale(1.05);
+    box-shadow: 0 15px 40px rgba(232, 80, 10, 0.5);
+  }
+
+  /* FOOTER */
+  footer {
+    padding: 60px 0;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    margin-top: 100px;
+  }
+
+  .footer-text {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--gray);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+
+  /* ANIMATIONS */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(40px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* LANGUAGE VISIBILITY */
+  [data-lang="en"] { display: none; }
+
+  .spacer { height: 120px; }
+</style>
+</head>
+<body>
+
+<div class="cosmos-bg">
+  <canvas id="stars-canvas"></canvas>
+</div>
+
+<header>
+  <div class="container nav-content">
+    <a href="#" class="nav-logo">GRAVIT<span>.</span></a>
+    
+    <div class="lang-toggle">
+      <button class="lang-btn active" onclick="setLang('pt')" id="btn-pt">PT</button>
+      <button class="lang-btn" onclick="setLang('en')" id="btn-en">EN</button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <span class="hero-tagline" data-lang="pt">Digital Cosmic Agency</span>
+    <span class="hero-tagline" data-lang="en" style="display:none">Digital Cosmic Agency</span>
+    
+    <h1>
+      <span data-lang="pt">Escalamos Marcas</span>
+      <span data-lang="en" style="display:none">Scaling Brands</span><br>
+      <span data-lang="pt">Para Outra <span>Galáxia</span></span>
+      <span data-lang="en" style="display:none">To Another <span>Galaxy</span></span>
+    </h1>
+
+    <p class="hero-sub" data-lang="pt">A GRAVIT combina software de elite, design de alto impacto e estratégias de conteúdo para colocar sua empresa no topo do universo digital.</p>
+    <p class="hero-sub" data-lang="en" style="display:none">GRAVIT combines elite software, high-impact design, and content strategies to position your business at the top of the digital universe.</p>
+  </section>
+
+  <!-- SERVICES -->
+  <section id="services">
+    <div class="section-header">
+      <span class="label" data-lang="pt">Nossos Serviços</span>
+      <span class="label" data-lang="en" style="display:none">Our Services</span>
+      <h2 class="section-title" data-lang="pt">Soluções Customizadas</h2>
+      <h2 class="section-title" data-lang="en" style="display:none">Customized Solutions</h2>
+    </div>
+
+    <div class="services-grid">
+      <!-- SITE -->
+      <div class="card" onclick="window.open('https://wa.me/5521985187256', '_blank')">
+        <div class="card-icon">🌐</div>
+        <h3 class="card-title" data-lang="pt">Landing Page</h3>
+        <h3 class="card-title" data-lang="en" style="display:none">Landing Page</h3>
+        <span class="card-sub" data-lang="pt">Alta Conversão & Performance</span>
+        <span class="card-sub" data-lang="en" style="display:none">High Conversion & Performance</span>
+        
+        <div class="card-price-box">
+          <div class="card-price" data-lang="pt"><small>R$</small>500</div>
+          <div class="card-price" data-lang="en" style="display:none"><small>£</small>800</div>
+          <p class="card-note" data-lang="pt">+ R$ 100/mês manutenção</p>
+          <p class="card-note" data-lang="en" style="display:none">+ £70/mo maintenance</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <div class="card-badge" data-lang="pt">🚀 Entrega antes do pagamento</div>
+            <div class="card-badge" data-lang="pt">💬 Suporte 24h</div>
+            <div class="card-badge" data-lang="pt">🔄 Alterações Mensais</div>
+            
+            <div class="card-badge" data-lang="en" style="display:none">🚀 Ready before payment</div>
+            <div class="card-badge" data-lang="en" style="display:none">💬 24h Support</div>
+            <div class="card-badge" data-lang="en" style="display:none">🔄 Monthly Changes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SYSTEM -->
+      <div class="card" onclick="window.open('https://wa.me/5521985187256', '_blank')">
+        <div class="card-icon">⚙️</div>
+        <h3 class="card-title" data-lang="pt">Software Sob Medida</h3>
+        <h3 class="card-title" data-lang="en" style="display:none">Custom Software</h3>
+        <span class="card-sub" data-lang="pt">Sistemas Complexos & Escaláveis</span>
+        <span class="card-sub" data-lang="en" style="display:none">Complex & Scalable Systems</span>
+        
+        <div class="card-price-box">
+          <div class="card-price" data-lang="pt"><small>R$</small>1.000</div>
+          <div class="card-price" data-lang="en" style="display:none"><small>£</small>5,000</div>
+          <p class="card-note" data-lang="pt">+ R$ 400/mês manutenção</p>
+          <p class="card-note" data-lang="en" style="display:none">+ £400/mo management</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <div class="card-badge" data-lang="pt">⚙️ Dev Full-Stack</div>
+            <div class="card-badge" data-lang="pt">💬 Suporte 24h</div>
+            <div class="card-badge" data-lang="pt">🔄 Alterações Mensais</div>
+            
+            <div class="card-badge" data-lang="en" style="display:none">⚙️ System ready before payment</div>
+            <div class="card-badge" data-lang="en" style="display:none">💬 24h Support</div>
+            <div class="card-badge" data-lang="en" style="display:none">🔄 Monthly Changes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DESIGN -->
+      <div class="card" onclick="window.open('https://wa.me/5521985187256', '_blank')">
+        <div class="card-icon">🎨</div>
+        <h3 class="card-title" data-lang="pt">Pack Design</h3>
+        <h3 class="card-title" data-lang="en" style="display:none">Design Package</h3>
+        <span class="card-sub" data-lang="pt">10 Artes Criativas Premium</span>
+        <span class="card-sub" data-lang="en" style="display:none">10 Premium Creative Arts</span>
+        
+        <div class="card-price-box">
+          <div class="card-price" data-lang="pt"><small>R$</small>200</div>
+          <div class="card-price" data-lang="en" style="display:none"><small>£</small>400</div>
+          <p class="card-note" data-lang="pt">Ideal para Social Media</p>
+          <p class="card-note" data-lang="en" style="display:none">Pack of 10 Arts / Month</p>
+          <div class="card-badge" data-lang="pt">🎨 Identidade Visual Única</div>
+          <div class="card-badge" data-lang="en" style="display:none">🎨 Creative Arts & Design</div>
+        </div>
+      </div>
+
+      <!-- VIDEO -->
+      <div class="card" onclick="window.open('https://wa.me/5521985187256', '_blank')">
+        <div class="card-icon">🎬</div>
+        <h3 class="card-title" data-lang="pt">Edição de Vídeo</h3>
+        <h3 class="card-title" data-lang="en" style="display:none">Video Editing</h3>
+        <span class="card-sub" data-lang="pt">Reels, TikTok & Ads</span>
+        <span class="card-sub" data-lang="en" style="display:none">Professional TikTok & Ads</span>
+        
+        <div class="card-price-box">
+          <div class="card-price" data-lang="pt"><small>Partir R$</small>50</div>
+          <div class="card-price" data-lang="en" style="display:none"><small>Start £</small>100</div>
+          <p class="card-note" data-lang="pt">Edição Cinematográfica</p>
+          <p class="card-note" data-lang="en" style="display:none">Professional Cut & Edit</p>
+          <div class="card-badge" data-lang="pt">🎬 Viralize seu conteúdo</div>
+          <div class="card-badge" data-lang="en" style="display:none">🎬 TikTok & Social Media</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY -->
+  <section class="why-section">
+    <div class="section-header">
+      <span class="label" data-lang="pt">O Diferencial</span>
+      <span class="label" data-lang="en" style="display:none">The Difference</span>
+      <h2 class="section-title" data-lang="pt">Por que a GRAVIT?</h2>
+      <h2 class="section-title" data-lang="en" style="display:none">Why GRAVIT?</h2>
+    </div>
+
+    <div class="why-grid">
+      <div class="why-card">
+        <h4 data-lang="pt">Suporte 24h</h4>
+        <h4 data-lang="en" style="display:none">24/7 Support</h4>
+        <p data-lang="pt">Estamos sempre ativos para garantir que sua presença digital nunca pare.</p>
+        <p data-lang="en" style="display:none">We are always active to ensure your digital presence never stops.</p>
+      </div>
+      <div class="why-card">
+        <h4 data-lang="pt">Risco Zero</h4>
+        <h4 data-lang="en" style="display:none">Zero Risk</h4>
+        <p data-lang="pt">Entregamos seu projeto pronto para revisão antes do primeiro pagamento.</p>
+        <p data-lang="en" style="display:none">We deliver your project ready for review before the first payment.</p>
+      </div>
+      <div class="why-card">
+        <h4 data-lang="pt">Escalabilidade</h4>
+        <h4 data-lang="en" style="display:none">Scalability</h4>
+        <p data-lang="pt">Nossas soluções crescem junto com seu negócio, sem limitações.</p>
+        <p data-lang="en" style="display:none">Our solutions grow with your business, without limitations.</p>
+      </div>
+      <div class="why-card">
+        <h4 data-lang="pt">Performance</h4>
+        <h4 data-lang="en" style="display:none">Performance</h4>
+        <p data-lang="pt">Foco total em velocidade e conversão para garantir seu ROI.</p>
+        <p data-lang="en" style="display:none">Total focus on speed and conversion to ensure your ROI.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <div class="cta-box">
+      <h2 data-lang="pt">Pronto para o Lançamento?</h2>
+      <h2 data-lang="en" style="display:none">Ready for Launch?</h2>
+      <p data-lang="pt">Transforme sua visão em realidade com a agência que domina o cosmos digital.</p>
+      <p data-lang="en" style="display:none">Turn your vision into reality with the agency that masters the digital cosmos.</p>
+      
+      <a href="https://wa.me/5521985187256" target="_blank" class="btn-primary">
+        <span data-lang="pt">Iniciar Projeto</span>
+        <span data-lang="en" style="display:none">Start Mission</span>
+        <span>→</span>
+      </a>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="container">
+    <span class="footer-text" data-lang="pt">© 2026 GRAVIT. — Digital Cosmic Agency</span>
+    <span class="footer-text" data-lang="en" style="display:none">© 2026 GRAVIT. — Digital Cosmic Agency</span>
+  </div>
+</footer>
+
+<script>
+  // STARFIELD CANVAS
+  const canvas = document.getElementById('stars-canvas');
+  const ctx = canvas.getContext('2d');
+  let stars = [];
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  function initStars() {
+    stars = [];
+    for(let i=0; i<200; i++) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: Math.random() * 2,
+        opacity: Math.random(),
+        speed: Math.random() * 0.05
+      });
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    stars.forEach(s => {
+      ctx.fillStyle = `rgba(255, 255, 255, ${s.opacity})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+      
+      s.opacity += s.speed;
+      if(s.opacity > 1 || s.opacity < 0) s.speed = -s.speed;
+    });
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', () => { resize(); initStars(); });
+  resize();
+  initStars();
+  draw();
+
+  // CARD HOVER EFFECT (LIGHTING)
+  document.querySelectorAll('.card').forEach(card => {
+    card.addEventListener('mousemove', e => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      card.style.setProperty('--x', `${x}px`);
+      card.style.setProperty('--y', `${y}px`);
+    });
+  });
+
+  // LANG TOGGLE
+  function setLang(lang) {
+    const ptEls = document.querySelectorAll('[data-lang="pt"]');
+    const enEls = document.querySelectorAll('[data-lang="en"]');
+    
+    document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+    
+    const isPt = lang === 'pt';
+    
+    // Toggle active buttons
+    document.getElementById('btn-pt').classList.toggle('active', isPt);
+    document.getElementById('btn-en').classList.toggle('active', !isPt);
+
+    // Toggle elements
+    document.querySelectorAll('[data-lang]').forEach(el => {
+      const elLang = el.getAttribute('data-lang');
+      const show = elLang === lang;
+      
+      if (!show) {
+        el.style.display = 'none';
+      } else {
+        // Restore default display based on tag or class
+        if (el.classList.contains('card-price') || el.classList.contains('hero-tagline')) {
+          el.style.display = 'flex';
+        } else if (el.tagName === 'SPAN') {
+          el.style.display = 'inline';
+        } else {
+          el.style.display = 'block';
+        }
+      }
+    });
+  }
+
+  setLang('pt');
+</script>
+
+</body>
+</html>
